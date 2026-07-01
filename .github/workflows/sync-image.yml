@@ -1,0 +1,51 @@
+name: Sync Pytorch Image to GHCR
+
+on:
+  workflow_dispatch: # 支持在 GitHub 页面手动点击按钮触发
+  schedule:
+    - cron: '0 0 * * 1' # 每周一凌晨 0:00 自动运行检查更新
+
+jobs:
+  sync-image:
+    runs-on: ubuntu-latest
+    
+    steps:
+    # 1. 深度清理 GitHub 虚拟机的磁盘空间（防止大镜像导致空间不足报错）
+    - name: Free Disk Space
+      run: |
+        sudo rm -rf /usr/share/dotnet
+        sudo rm -rf /usr/local/lib/android
+        sudo rm -rf /opt/ghc
+        sudo rm -rf "/usr/local/share/boost"
+        sudo rm -rf "$AGENT_TOOLSDIRECTORY"
+
+    # 2. 登录到 GitHub Container Registry (ghcr.io)
+    - name: Log in to GHCR
+      uses: docker/login-action@v3
+      with:
+        registry: ghcr.io
+        username: ${{ github.repository_owner }}
+        password: ${{ secrets.GH_PAT }}
+
+    # 3. 执行拉取、重命名和推送
+    - name: Pull and Push Image
+      run: |
+        # 目标源镜像
+        SOURCE_IMAGE="daturaai/pytorch:2.12.0-py3.12-cuda13.0.2-devel-ubuntu24.04-dind"
+        
+        # 自动将您的 GitHub 用户名转换为小写（GHCR 强制要求用户名和镜像名必须全小写）
+        TARGET_OWNER=$(echo "${{ github.repository_owner }}" | tr '[:upper:]' '[:lower:]')
+        
+        # 目标保存镜像路径（保持原有的标签版本号）
+        TARGET_IMAGE="ghcr.io/${TARGET_OWNER}/pytorch:2.12.0-py3.12-cuda13.0.2-devel-ubuntu24.04-dind"
+        
+        echo "正在从 Docker Hub 拉取大镜像，请耐心等待..."
+        docker pull $SOURCE_IMAGE
+        
+        echo "正在修改标签..."
+        docker tag $SOURCE_IMAGE $TARGET_IMAGE
+        
+        echo "正在推送到您的 GitHub Packages..."
+        docker push $TARGET_IMAGE
+        
+        echo "同步成功！"
